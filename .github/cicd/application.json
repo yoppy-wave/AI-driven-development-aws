@@ -9,7 +9,8 @@
   "cdk": {
     "enabled": false,
     "region": "us-east-1",
-    "previewEnvironmentEnabled": false
+    "previewEnvironmentEnabled": false,
+    "previewOrphanAuditEnabled": false
   },
   "deployments": {
     "development": false,

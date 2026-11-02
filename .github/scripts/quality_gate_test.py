@@ -11,7 +11,7 @@ POLICY = {"runtimes": {"python": {"series": "3.12"}, "node": {"series": "24"}}}
 
 def success() -> dict:
     result = {name: {"result": "success", "outputs": {"python-version": "3.12.15", "node-version": "24.22.0"}}
-              for name in ("test", "lint", "dependency", "security")}
+              for name in ("test", "lint", "dependency", "security", "lambda-modules")}
     result["dependency"]["outputs"].update({"required-python": "3.12.15", "required-node": "24.22.0"})
     return result
 
@@ -36,6 +36,12 @@ class QualityGateTests(unittest.TestCase):
             results[gate]["outputs"] = {}
             with self.assertRaises(PolicyViolation):
                 verify(results, POLICY)
+
+    def test_lambda_module_gate_is_required(self) -> None:
+        results = success()
+        del results["lambda-modules"]
+        with self.assertRaisesRegex(PolicyViolation, "missing or unexpected"):
+            verify(results, POLICY)
 
     def test_actual_runtime_in_every_gate_is_checked(self) -> None:
         for gate in success():

@@ -3,6 +3,8 @@ name: Implement AI coding issues
 on:
   issues:
     types: [labeled]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write
@@ -15,7 +17,14 @@ concurrency:
 
 jobs:
   implement:
-    if: github.event.label.name == 'ai-coding'
+    if: >-
+      (github.event_name == 'issues' && github.event.label.name == 'ai-coding') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       (github.event.comment.body == '/cline fix' || startsWith(github.event.comment.body, '/cline fix ')) &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+       github.event.comment.user.type != 'Bot' &&
+       github.event.comment.user.login != 'github-actions[bot]')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
 
@@ -40,31 +49,65 @@ jobs:
       - name: Install Cline CLI
         run: npm install --global cline@3.0.70
 
+      - name: Validate PR and retrieve its changed files
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          pr="$RUNNER_TEMP/ai-coding-pr.json"
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" > "$pr"
+          jq -e --arg repository "$GH_REPO" \
+            '.state == "open" and .base.repo.full_name == $repository and .head.repo.full_name == $repository' \
+            "$pr" >/dev/null
+          gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/files?per_page=100" \
+            | jq 'add' > "$RUNNER_TEMP/ai-coding-pr-files.json"
+          python -c 'from pathlib import Path; p=Path("'"$RUNNER_TEMP"'/ai-coding-pr-files.json"); assert p.stat().st_size <= 5000000, "PR file data exceeds 5 MB"'
+
       - name: Prepare the implementation request
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ github.event.issue.pull_request && github.event.issue.number || '' }}
+          PR_COMMENT_BODY: ${{ github.event.comment.body || '' }}
         run: |
           python .github/scripts/ai_coding.py prepare
           cp .github/scripts/ai_coding.py "$RUNNER_TEMP/ai-coding-helper.py"
           cp .github/scripts/ai_question.py "$RUNNER_TEMP/ai_question.py"
+          if [[ -n "$PR_NUMBER" ]]; then
+            mkdir -p "$HOME/.cline/hooks"
+            cp .github/scripts/ai_coding.py "$HOME/.cline/hooks/PreToolUse.py"
+            cp .github/scripts/ai_question.py "$HOME/.cline/hooks/ai_question.py"
+            chmod +x "$HOME/.cline/hooks/PreToolUse.py"
+          fi
 
       - name: Implement and test with Cline
         id: coding
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CLINE_MODEL: ${{ vars.CLINE_MODEL || 'gpt-5.4' }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          PR_NUMBER: ${{ github.event.issue.pull_request && github.event.issue.number || '' }}
           CLINE_LOG_ENABLED: '0'
         run: |
-          if [[ -z "$OPENAI_API_KEY" ]]; then
-            echo '::error::Repository secret OPENAI_API_KEY is not configured.'
+          if [[ -z "$AZURE_OPENAI_API_KEY" || -z "$AZURE_OPENAI_ENDPOINT" || -z "$AZURE_OPENAI_DEPLOYMENT" ]]; then
+            echo '::error::Configure AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, and AZURE_OPENAI_DEPLOYMENT.'
             exit 1
           fi
 
+          umask 077
+          cline_config_dir="$RUNNER_TEMP/cline-config"
+          trap 'rm -rf "$cline_config_dir"' EXIT
+          cline auth --provider openai-native --apikey "$AZURE_OPENAI_API_KEY" \
+            --modelid "$AZURE_OPENAI_DEPLOYMENT" --baseurl "$AZURE_OPENAI_ENDPOINT" \
+            --config "$cline_config_dir"
+
           base_sha="$(git rev-parse HEAD)"
           if ! timeout --signal=TERM 2750s cline --json --auto-approve true \
-            --timeout 2700 --provider openai --model "$CLINE_MODEL" \
+            --timeout 2700 --provider openai-native --model "$AZURE_OPENAI_DEPLOYMENT" \
+            --config "$cline_config_dir" \
             --cwd "$GITHUB_WORKSPACE" \
             < "$RUNNER_TEMP/ai-coding-prompt.txt" \
             > "$RUNNER_TEMP/ai-coding-events.ndjson" \
@@ -94,9 +137,9 @@ jobs:
         with:
           token: ${{ secrets.AI_CODING_PR_TOKEN || secrets.GITHUB_TOKEN }}
           base: ${{ github.event.repository.default_branch }}
-          branch: ai-coding/issue-${{ github.event.issue.number }}
-          commit-message: 'Clineでissue #${{ github.event.issue.number }}を実装'
-          title: 'AI実装: issue #${{ github.event.issue.number }}'
+          branch: ai-coding/${{ github.event.issue.pull_request && 'pr' || 'issue' }}-${{ github.event.issue.number }}
+          commit-message: 'Clineで依頼 #${{ github.event.issue.number }}を実装'
+          title: 'AI実装: 依頼 #${{ github.event.issue.number }}'
           body-path: ${{ runner.temp }}/ai-coding-pr-body.md
           draft: true
 

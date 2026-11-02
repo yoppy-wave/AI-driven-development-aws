@@ -6,7 +6,7 @@ import os
 
 from check_dependencies import POLICY, PolicyViolation, check_runtime
 
-GATES = {"test", "lint", "dependency", "security"}
+GATES = {"test", "lint", "dependency", "security", "lambda-modules"}
 
 
 def verify(results: dict, policy: dict) -> None:
@@ -27,7 +27,7 @@ def verify(results: dict, policy: dict) -> None:
 
 def main() -> None:
     verify(json.loads(os.environ["QUALITY_RESULTS"]), json.loads(POLICY.read_text()))
-    print("All four quality gates succeeded with compliant runtimes.")
+    print("All five quality gates succeeded with compliant runtimes.")
 
 
 if __name__ == "__main__":

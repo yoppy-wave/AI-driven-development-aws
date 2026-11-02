@@ -1,0 +1,34 @@
+name: Reusable staging deployment
+
+on:
+  workflow_call:
+    inputs:
+      enabled:
+        description: Validated staging deployment enablement.
+        required: true
+        type: boolean
+      region:
+        description: AWS region published by the validated CI configuration.
+        required: true
+        type: string
+    secrets:
+      AWS_ROLE_TO_ASSUME:
+        description: Staging OIDC role ARN from the staging Environment.
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-aws-cdk.yml
+    with:
+      enabled: ${{ inputs.enabled }}
+      operation: deploy
+      stack-name: app-staging
+      stack-environment: staging
+      region: ${{ inputs.region }}
+      github-environment: staging
+    secrets:
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}

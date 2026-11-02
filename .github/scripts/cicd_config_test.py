@@ -16,10 +16,10 @@ class CicdConfigTests(unittest.TestCase):
         self.config_path = self.root / ".github" / "cicd" / "application.json"
 
     def valid(self) -> dict[str, object]:
-        return {"version": 1, "application": {"name": "app"}, "ci": {"enabled": True}, "cdk": {"enabled": False, "region": "us-east-1", "previewEnvironmentEnabled": False}, "deployments": {"development": False, "staging": False, "production": False}}
+        return {"version": 1, "application": {"name": "app"}, "ci": {"enabled": True}, "cdk": {"enabled": False, "region": "us-east-1", "previewEnvironmentEnabled": False, "previewOrphanAuditEnabled": False}, "deployments": {"development": False, "staging": False, "production": False}}
 
     def write(self, config: dict[str, object], with_cdk: bool = False) -> None:
-        self.config_path.parent.mkdir(parents=True)
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(json.dumps(config), encoding="utf-8")
         if with_cdk:
             (self.root / "cdk.json").write_text("{}", encoding="utf-8")
@@ -33,6 +33,18 @@ class CicdConfigTests(unittest.TestCase):
         config["cdk"]["previewEnvironmentEnabled"] = True
         self.write(config)
         with self.assertRaisesRegex(ValueError, "requires cdk.enabled"):
+            cicd_config.load(self.config_path)
+
+    def test_orphan_audit_requires_cdk_but_not_preview_deployments(self) -> None:
+        config = self.valid()
+        config["cdk"]["enabled"] = True
+        config["cdk"]["previewOrphanAuditEnabled"] = True
+        self.write(config, with_cdk=True)
+        self.assertEqual(cicd_config.values(cicd_config.load(self.config_path))["preview_orphan_audit_enabled"], "true")
+
+        config["cdk"]["enabled"] = False
+        self.write(config)
+        with self.assertRaisesRegex(ValueError, "previewOrphanAuditEnabled requires cdk.enabled"):
             cicd_config.load(self.config_path)
 
     def test_enabled_deployment_requires_cdk(self) -> None:

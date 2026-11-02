@@ -25,7 +25,7 @@ class AiQuestionTests(unittest.TestCase):
                 "ISSUE_TITLE": "境界値を確認",
                 "ISSUE_BODY": "0件の場合は？",
                 "GITHUB_SHA": "abc123",
-                "OPENAI_API_KEY": "test-secret-token",
+                "AZURE_OPENAI_API_KEY": "test-secret-token",
             },
         )
         self.environment.start()

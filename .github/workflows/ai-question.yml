@@ -70,17 +70,26 @@ jobs:
 
       - name: Inspect source and draft an answer
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CLINE_MODEL: ${{ vars.CLINE_MODEL || 'gpt-5.4' }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
           CLINE_LOG_ENABLED: '0'
         run: |
-          if [[ -z "$OPENAI_API_KEY" ]]; then
-            echo '::error::Repository secret OPENAI_API_KEY is not configured.'
+          if [[ -z "$AZURE_OPENAI_API_KEY" || -z "$AZURE_OPENAI_ENDPOINT" || -z "$AZURE_OPENAI_DEPLOYMENT" ]]; then
+            echo '::error::Configure AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, and AZURE_OPENAI_DEPLOYMENT.'
             exit 1
           fi
 
+          umask 077
+          cline_config_dir="$RUNNER_TEMP/cline-config"
+          trap 'rm -rf "$cline_config_dir"' EXIT
+          cline auth --provider openai-native --apikey "$AZURE_OPENAI_API_KEY" \
+            --modelid "$AZURE_OPENAI_DEPLOYMENT" --baseurl "$AZURE_OPENAI_ENDPOINT" \
+            --config "$cline_config_dir"
+
           if ! timeout --signal=TERM 1250s cline --json --plan --auto-approve true \
-            --timeout 1200 --provider openai --model "$CLINE_MODEL" \
+            --timeout 1200 --provider openai-native --model "$AZURE_OPENAI_DEPLOYMENT" \
+            --config "$cline_config_dir" \
             --cwd "$GITHUB_WORKSPACE" \
             < "$RUNNER_TEMP/ai-question-prompt.txt" \
             > "$RUNNER_TEMP/ai-question-events.ndjson" \

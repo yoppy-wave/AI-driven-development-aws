@@ -66,6 +66,9 @@ def validate(config: dict[str, object], root: Path = ROOT) -> dict[str, object]:
     preview_enabled = required_bool(cdk, "previewEnvironmentEnabled", "cdk")
     if preview_enabled and not enabled:
         fail("cdk.previewEnvironmentEnabled requires cdk.enabled to be true")
+    orphan_audit_enabled = required_bool(cdk, "previewOrphanAuditEnabled", "cdk")
+    if orphan_audit_enabled and not enabled:
+        fail("cdk.previewOrphanAuditEnabled requires cdk.enabled to be true")
     if enabled and not (root / "cdk.json").is_file():
         fail("cdk.json must exist when cdk.enabled is true")
 
@@ -89,6 +92,7 @@ def values(config: dict[str, object]) -> dict[str, str]:
         "cdk_enabled": str(cdk["enabled"]).lower(),
         "cdk_region": str(cdk["region"]),
         "preview_environment_enabled": str(cdk["previewEnvironmentEnabled"]).lower(),
+        "preview_orphan_audit_enabled": str(cdk["previewOrphanAuditEnabled"]).lower(),
         "development_enabled": str(deployments["development"]).lower(),
         "staging_enabled": str(deployments["staging"]).lower(),
         "production_enabled": str(deployments["production"]).lower(),

@@ -15,7 +15,16 @@ class CicdWorkflowTests(unittest.TestCase):
     def test_reusable_workflows_are_supported_and_called(self) -> None:
         for name in ("reusable-ci.yml", "reusable-aws-cdk.yml"):
             self.assertIn("workflow_call:", workflow(name))
-        self.assertEqual(workflow("cicd.yml").count("uses: ./.github/workflows/reusable-aws-cdk.yml"), 5)
+        self.assertEqual(workflow("cicd.yml").count("uses: ./.github/workflows/reusable-aws-cdk.yml"), 3)
+        for name, stack, environment in (
+            ("reusable-deploy-staging.yml", "app-staging", "staging"),
+            ("reusable-deploy-production.yml", "app-production", "production"),
+        ):
+            deployment = workflow(name)
+            self.assertIn("uses: ./.github/workflows/reusable-aws-cdk.yml", deployment)
+            self.assertIn(f"stack-name: {stack}", deployment)
+            self.assertIn(f"github-environment: {environment}", deployment)
+            self.assertIn("workflow_call:", deployment)
 
     def test_update_and_close_cleanup_share_a_queued_pr_lock(self) -> None:
         for content in (workflow("cicd.yml"), workflow("cicd-preview-cleanup.yml")):
@@ -58,6 +67,18 @@ class CicdWorkflowTests(unittest.TestCase):
         self.assertNotIn("github.event.pull_request.head.sha", cleanup)
         self.assertNotIn("npm ci", cleanup)
         self.assertNotIn("npm run cdk", cleanup)
+
+    def test_weekly_preview_audit_is_read_only_and_disabled_before_aws_auth(self) -> None:
+        audit = workflow("preview-orphan-audit.yml")
+        helper = (ROOT / ".github/scripts/preview_orphan_audit.py").read_text(encoding="utf-8")
+        self.assertIn("schedule:", audit)
+        self.assertIn("preview_orphan_audit_enabled", audit)
+        self.assertIn("if: needs.configuration.outputs.enabled == 'true'", audit)
+        self.assertLess(audit.index("outputs.enabled"), audit.index("configure-aws-credentials"))
+        self.assertIn("environment:\n      name: preview-audit", audit)
+        self.assertIn("id-token: write", audit)
+        for forbidden in ("delete-stack", "cdk deploy", "cdk destroy"):
+            self.assertNotIn(forbidden, helper)
 
     def test_pull_request_policy_checks_out_and_executes_the_trusted_base_commit(self) -> None:
         policy = workflow("pull-request-policy.yml")

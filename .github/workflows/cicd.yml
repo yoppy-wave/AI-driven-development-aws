@@ -24,6 +24,8 @@ concurrency:
 jobs:
   ci:
     uses: ./.github/workflows/reusable-ci.yml
+    secrets:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   regression:
     name: Regression tests
@@ -96,14 +98,10 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/reusable-aws-cdk.yml
+    uses: ./.github/workflows/reusable-deploy-staging.yml
     with:
       enabled: true
-      operation: deploy
-      stack-name: app-staging
-      stack-environment: staging
       region: ${{ needs.ci.outputs.cdk-region }}
-      github-environment: staging
     secrets:
       AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
 
@@ -113,13 +111,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/reusable-aws-cdk.yml
+    uses: ./.github/workflows/reusable-deploy-production.yml
     with:
       enabled: true
-      operation: deploy
-      stack-name: app-production
-      stack-environment: production
       region: ${{ needs.ci.outputs.cdk-region }}
-      github-environment: production
     secrets:
       AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}

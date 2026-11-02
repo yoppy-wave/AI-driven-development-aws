@@ -31,6 +31,18 @@ class AiQuestionWorkflowTests(unittest.TestCase):
         self.assertIn("types: [labeled]", content)
         self.assertIn("github.event.label.name == 'ai-question'", content)
 
+    def test_azure_openai_is_configured_for_headless_cline(self) -> None:
+        content = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}", content)
+        self.assertIn("AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}", content)
+        self.assertIn("AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}", content)
+        self.assertIn("cline auth --provider openai-native --apikey", content)
+        self.assertIn("--modelid \"$AZURE_OPENAI_DEPLOYMENT\"", content)
+        self.assertIn("--baseurl \"$AZURE_OPENAI_ENDPOINT\"", content)
+        self.assertIn("--provider openai-native --model \"$AZURE_OPENAI_DEPLOYMENT\"", content)
+        self.assertNotIn("secrets.OPENAI_API_KEY", content)
+        self.assertNotIn("--provider openai --model", content)
+
 
 if __name__ == "__main__":
     unittest.main()

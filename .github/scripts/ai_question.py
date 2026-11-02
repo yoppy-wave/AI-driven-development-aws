@@ -177,9 +177,9 @@ def extract() -> None:
     answer = final_text("ai-question-events.ndjson")
     if len(answer.encode("utf-8")) > 60_000:
         raise SystemExit("Cline answer is too long; nothing was posted.")
-    key = os.environ.get("OPENAI_API_KEY")
+    key = os.environ.get("AZURE_OPENAI_API_KEY")
     if not key or key in answer:
-        raise SystemExit("The API key is unavailable or appears in the answer; nothing was posted.")
+        raise SystemExit("The Azure OpenAI API key is unavailable or appears in the answer; nothing was posted.")
     runner_file("ai-question-answer.md").write_text(
         f"{answer}\n\n---\n確認したコミット: `{os.environ['GITHUB_SHA']}`\n",
         encoding="utf-8",

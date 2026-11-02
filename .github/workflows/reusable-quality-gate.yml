@@ -1,0 +1,70 @@
+name: Reusable quality gate
+
+on:
+  workflow_call:
+    inputs:
+      gate:
+        description: Independent quality check to execute.
+        required: true
+        type: string
+    outputs:
+      python-version:
+        value: ${{ jobs.gate.outputs.python-version }}
+      node-version:
+        value: ${{ jobs.gate.outputs.node-version }}
+      required-python:
+        value: ${{ jobs.gate.outputs.required-python }}
+      required-node:
+        value: ${{ jobs.gate.outputs.required-node }}
+    secrets:
+      GH_TOKEN:
+        description: Token used by the dependency check for GitHub release metadata.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CI: "true"
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+    outputs:
+      python-version: ${{ steps.python.outputs.python-version }}
+      node-version: ${{ steps.node.outputs.node-version }}
+      required-python: ${{ steps.check.outputs.required-python }}
+      required-node: ${{ steps.check.outputs.required-node }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Read runtime selectors
+        id: policy
+        run: |
+          python -c 'import json; p=json.load(open(".github/quality/version-policy.json")); print("python="+p["runtimes"]["python"]["series"]); print("node="+p["runtimes"]["node"]["series"])' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v7
+        id: python
+        with:
+          python-version: ${{ steps.policy.outputs.python }}
+          check-latest: true
+      - uses: actions/setup-node@v7
+        id: node
+        with:
+          node-version: ${{ steps.policy.outputs.node }}
+          check-latest: true
+          cache: npm
+      - name: Run selected gate
+        id: check
+        env:
+          GATE: ${{ inputs.gate }}
+        run: |
+          case "$GATE" in
+            test) python .github/scripts/run_regression.py ;;
+            lint) python .github/scripts/run_lint.py ;;
+            dependency) python .github/scripts/check_dependencies.py ;;
+            security) npm ci --ignore-scripts && python .github/scripts/check_security.py ;;
+            lambda-modules) python .github/scripts/check_lambda_modules.py ;;
+            *) echo "Unsupported quality gate: $GATE" >&2; exit 1 ;;
+          esac

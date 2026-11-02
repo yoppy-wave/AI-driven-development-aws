@@ -1,0 +1,34 @@
+name: Reusable production deployment
+
+on:
+  workflow_call:
+    inputs:
+      enabled:
+        description: Validated production deployment enablement.
+        required: true
+        type: boolean
+      region:
+        description: AWS region published by the validated CI configuration.
+        required: true
+        type: string
+    secrets:
+      AWS_ROLE_TO_ASSUME:
+        description: Production OIDC role ARN from the production Environment.
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-aws-cdk.yml
+    with:
+      enabled: ${{ inputs.enabled }}
+      operation: deploy
+      stack-name: app-production
+      stack-environment: production
+      region: ${{ inputs.region }}
+      github-environment: production
+    secrets:
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}

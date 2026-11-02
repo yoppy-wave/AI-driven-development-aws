@@ -1,0 +1,71 @@
+name: Weekly preview stack audit
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: preview-orphan-audit
+  cancel-in-progress: false
+
+jobs:
+  configuration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      enabled: ${{ steps.config.outputs.preview_orphan_audit_enabled }}
+      region: ${{ steps.config.outputs.cdk_region }}
+      management-ref: ${{ steps.management.outputs.commit }}
+    steps:
+      - name: Check out protected default-branch audit code
+        id: management
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Validate trusted CI/CD configuration
+        id: config
+        run: python .github/scripts/cicd_config.py github-output >> "$GITHUB_OUTPUT"
+      - name: Explain disabled audit
+        if: steps.config.outputs.preview_orphan_audit_enabled != 'true'
+        run: echo 'Preview orphan audit is disabled; no AWS authentication was attempted.' >> "$GITHUB_STEP_SUMMARY"
+
+  audit:
+    if: needs.configuration.outputs.enabled == 'true'
+    needs: configuration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: preview-audit
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    steps:
+      - name: Check out the trusted audit revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.configuration.outputs.management-ref }}
+          persist-credentials: false
+      - name: Set up Node.js for the shared preview naming function
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Configure AWS credentials with read-only OIDC role
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ needs.configuration.outputs.region }}
+      - name: Audit managed preview stacks without mutation
+        env:
+          AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REGION: ${{ needs.configuration.outputs.region }}
+        run: python .github/scripts/preview_orphan_audit.py

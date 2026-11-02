@@ -79,7 +79,7 @@ Rulesetの必須チェックには、次のcheck contextを指定します。
 | `Regression tests / regression` | `.github/workflows/regression.yml` |
 | `Pull request policy / validate` | `.github/workflows/pull-request-policy.yml` |
 
-品質ゲートは全ブランチへのpushとPRで実行されます。Test・Lint・Dependency・Securityを並列実行し、`ci / ci`で集約します。Rulesets用の`Regression tests / regression`は同じ集約結果を検証する互換チェックとして維持します。詳しくは[CI品質ゲート](ci-quality-gates.md)を参照してください。PRポリシーは、`prod`宛てを同一リポジトリの`stg`からだけ、`stg`宛てを`feature/*`または`fix/*`からだけ許可します。
+品質ゲートは全ブランチへのpushとPRで実行されます。Test・Lint・Dependency・Security・Lambda modulesを並列実行し、`ci / ci`で集約します。Rulesets用の`Regression tests / regression`は同じ集約結果を検証する互換チェックとして維持します。詳しくは[CI品質ゲート](ci-quality-gates.md)を参照してください。PRポリシーは、`prod`宛てを同一リポジトリの`stg`からだけ、`stg`宛てを`feature/*`または`fix/*`からだけ許可します。
 
 ## 3. GitHub Actions、AI Issueワークフロー、Secrets
 
@@ -91,17 +91,18 @@ workflowは必要な権限をYAMLで明示していますが、リポジトリ�
 
 ### AI Issueワークフローの有効化
 
-`ai-question.yml`と`ai-coding.yml`は、既定ブランチに存在すると利用できます。`ai-coding.yml`は対応するラベルをIssueへ付与したときに起動します。`ai-question.yml`は`ai-question`ラベルに加え、OWNER、MEMBER、COLLABORATORがIssueコメントで`@cline`を付けたときにも起動します。利用する場合はGitHub管理画面で次を設定します。
+`ai-question.yml`と`ai-coding.yml`は、既定ブランチに存在すると利用できます。`ai-coding.yml`は対応するラベルをIssueへ付与したとき、または同一リポジトリのPRへ信頼済みユーザーが`/cline fix`とコメントしたときに起動します。PRの変更ファイルはデータとしてのみ読み、PRブランチをcheckout・実行しません。`ai-question.yml`は`ai-question`ラベルに加え、OWNER、MEMBER、COLLABORATORがIssueコメントで`@cline`を付けたときにも起動します。利用する場合はGitHub管理画面で次を設定します。
 
 | 種別 | 名前 | 用途 | 必須性 |
 | --- | --- | --- | --- |
-| Repository secret | `OPENAI_API_KEY` | Cline CLIのOpenAI API認証 | AI Issueワークフローを使う場合は必須 |
-| Repository variable | `CLINE_MODEL` | 使用するOpenAI APIモデルID。未設定時は`gpt-5.4` | 任意 |
+| Repository secret | `AZURE_OPENAI_API_KEY` | Azure OpenAIのAPIキー | AI Issueワークフローを使う場合は必須 |
+| Repository variable | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI v1のベースURL（例：`https://<resource>.openai.azure.com/openai/v1/`） | 必須 |
+| Repository variable | `AZURE_OPENAI_DEPLOYMENT` | Azure上に作成したモデルデプロイ名 | 必須 |
 | Repository secret | `AI_CODING_PR_TOKEN` | AI作成PRの後続CIを自動実行したい場合のPAT | 任意 |
 
 - `AI_CODING_PR_TOKEN`を使う場合は、`contents: write`と`pull-requests: write`だけを必要範囲として付与します。未設定時は`GITHUB_TOKEN`を使います。
 - GitHub上で`ai-question`と`ai-coding`ラベルを作成します。
-- OpenAI APIキーは利用上限を設定し、信頼できる担当者だけが`ai-coding`ラベルを付与できる運用にします。APIキー、PAT、AWS認証情報をリポジトリやStack Outputへ保存しません。
+- Azure OpenAIのベースURLは`/openai/v1/`まで含め、デプロイ名をClineのモデルIDとして指定します。v1 APIでは日付付きAPIバージョンは不要です。リソース側で利用上限を設定し、信頼できる担当者だけが`ai-coding`ラベルを付与できる運用にします。APIキー、PAT、AWS認証情報をリポジトリやStack Outputへ保存しません。
 - AI Issueワークフローの利用方法・制約は[開発ガイド](development-guide.md#issueからaiを利用する)を参照してください。
 
 ## 4. GitHub EnvironmentsとAWS OIDC
@@ -116,11 +117,11 @@ AWS CDKのStack構成、previewの安全策、cleanupの設計は[AWS CDKアー�
 
 AWSデプロイを有効化する前に、プロジェクト管理者は次を準備します。
 
-1. 対象環境のAWSアカウント、リージョン、Stack名、変更・削除対象、データのバックアップ・復旧方法を決める。
+1. 対象環境のAWSアカウント、リージョン、Stack名、変更・削除対象、データのバックアップ・復旧方法を決める。プレビュー監査を有効にする場合は、読み取り専用の`preview-audit` Environmentと専用OIDCロールも準備する。
 2. GitHub Actions OIDC用のIAM identity providerと、環境ごとに最小権限のIAM Roleを作成する。アクセスキーは使わず、Role ARNをソースやOutputへ書かない。
-3. GitHubの **Settings → Environments** で`preview`、`development`、`staging`、`production`を作成する。対象のRole ARNを、各Environmentの`AWS_ROLE_TO_ASSUME` **Environment Secret**として設定する。
-4. `preview`、`staging`、`production`にはrequired reviewersを設定する。productionには承認者と必要なdeployment branch policyも設定する。developmentも組織方針に応じて承認・ブランチ制限を設定する。
-5. `application.json`で、必要な`cdk.enabled`、`previewEnvironmentEnabled`、`deployments`だけを明示的に`true`にする。
+3. GitHubの **Settings → Environments** で`preview`、`preview-audit`、`development`、`staging`、`production`を作成する。対象のRole ARNを、各Environmentの`AWS_ROLE_TO_ASSUME` **Environment Secret**として設定する。`preview-audit`にはSTS caller identity確認とCloudFormationのStack一覧・詳細参照だけを許可する専用Roleを使う。
+4. `preview`、`preview-audit`、`staging`、`production`にはrequired reviewersを設定する。productionには承認者と必要なdeployment branch policyも設定する。developmentも組織方針に応じて承認・ブランチ制限を設定する。
+5. `application.json`で、必要な`cdk.enabled`、`previewEnvironmentEnabled`、`previewOrphanAuditEnabled`、`deployments`だけを明示的に`true`にする。監査はStackを報告するだけで削除しない。
 6. 承認済みの範囲で、対象Stackと環境を限定してCI/CDの挙動を確認する。
 
 再利用workflowは`workflow_call.secrets`で必要なSecret名を明示し、callerも`AWS_ROLE_TO_ASSUME`だけを明示的に渡します。jobに割り当てたGitHub Environmentの同名Secretが優先されます。
